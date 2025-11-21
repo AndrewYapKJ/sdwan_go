@@ -1,0 +1,41 @@
+### Go / Editor / OS ignores
+
+# Binaries for programs and plugins
+/bin/
+bin/
+
+# Dependency directories (remove the comment to include it)
+/vendor/
+
+# Test binary, coverage
+*.test
+coverage.out
+
+# Output of the go coverage tool
+*.coverprofile
+
+# Editor directories and files
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+
+# WireGuard device files / local artifacts
+/etc/wireguard/
+
+# Misc
+*.pem
+*.key
