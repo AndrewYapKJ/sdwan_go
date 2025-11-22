@@ -22,6 +22,9 @@ coverage.out
 # OS files
 .DS_Store
 
+# Repository docs
+README.md
+
 # Environment variables
 .env
 .env.local
