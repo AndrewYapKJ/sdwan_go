@@ -15,6 +15,7 @@ type Peer struct {
 	ID        string    `json:"id"`
 	PublicKey string    `json:"publicKey"`
 	Address   string    `json:"address"`
+	Endpoint  string    `json:"endpoint,omitempty"`
 	LastSeen  time.Time `json:"lastSeen"`
 }
 
@@ -91,6 +92,15 @@ func (h *HubState) AllocatePeer(pub string) (*Peer, error) {
 	}
 	h.Peers[pub] = p
 	return p, nil
+}
+
+func (h *HubState) SetPeerEndpoint(pub, endpoint string) {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+	if p, ok := h.Peers[pub]; ok {
+		p.Endpoint = endpoint
+		p.LastSeen = time.Now()
+	}
 }
 
 func (h *HubState) Touch(pub string) {

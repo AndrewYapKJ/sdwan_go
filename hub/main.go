@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -30,10 +31,14 @@ type registerReq struct {
 type registerResp struct {
 	AssignedAddress string        `json:"assignedAddress"`
 	HubPublicKey    string        `json:"hubPublicKey"`
+	HubEndpoint     string        `json:"hubEndpoint"`
 	Peers           []shared.Peer `json:"peers"`
 }
 
 func main() {
+	noWG := flag.Bool("no-wg", false, "skip wireguard device configuration (for local testing)")
+	flag.Parse()
+
 	listen := getEnv("LISTEN", "0.0.0.0:8080")
 	wgPort := getEnv("WG_PORT", "51820")
 	state, err := shared.NewHubState()
@@ -42,9 +47,13 @@ func main() {
 	}
 	prometheus.MustRegister(regCounter)
 
-	// Try to ensure interface exists
-	if err := ensureInterface(state.HubPrivKey, wgPort); err != nil {
-		log.Println("[warn] wireguard setup:", err)
+	// Try to ensure interface exists (can skip with --no-wg for local testing)
+	if !*noWG {
+		if err := ensureInterface(state.HubPrivKey, wgPort); err != nil {
+			log.Println("[warn] wireguard setup:", err)
+		}
+	} else {
+		log.Println("Skipping wireguard interface setup (no-wg)")
 	}
 
 	http.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
@@ -60,8 +69,18 @@ func main() {
 		if !state.ValidateToken(req.Token) { w.WriteHeader(403); return }
 		peer, err := state.AllocatePeer(req.PublicKey)
 		if err != nil { w.WriteHeader(500); return }
+		// observe remote endpoint (ip:port) and store it
+		remote := r.RemoteAddr
+		state.SetPeerEndpoint(req.PublicKey, remote)
+		// compute hub endpoint host for clients (use Host header fallback)
+		hostOnly := r.Host
+		if strings.Contains(hostOnly, ":") {
+			hostOnly = strings.Split(hostOnly, ":")[0]
+		}
+		hubEndpoint := fmt.Sprintf("%s:%s", hostOnly, wgPort)
 		regCounter.Inc()
 		resp := registerResp{AssignedAddress: peer.Address, HubPublicKey: state.HubPubKey}
+		resp.HubEndpoint = hubEndpoint
 		for _, p := range state.ListPeers() { resp.Peers = append(resp.Peers, *p) }
 		json.NewEncoder(w).Encode(resp)
 	})

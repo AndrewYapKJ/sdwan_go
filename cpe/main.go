@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -18,15 +18,18 @@ import (
 type registerResp struct {
 	AssignedAddress string `json:"assignedAddress"`
 	HubPublicKey    string `json:"hubPublicKey"`
+	HubEndpoint     string `json:"hubEndpoint"`
 	Peers           []struct{
 		PublicKey string `json:"publicKey"`
 		Address string `json:"address"`
+		Endpoint string `json:"endpoint,omitempty"`
 	} `json:"peers"`
 }
 
 func main() {
 	hub := flag.String("hub", "http://127.0.0.1:8080", "Hub base URL")
 	token := flag.String("token", "", "Enrollment token")
+    noWG := flag.Bool("no-wg", false, "skip wireguard device configuration (for local testing)")
 	flag.Parse()
 	if *token == "" { log.Fatal("--token required") }
 
@@ -43,12 +46,17 @@ func main() {
 	if err := json.NewDecoder(resp.Body).Decode(&reg); err != nil { log.Fatal(err) }
 	log.Println("Assigned", reg.AssignedAddress, "HubPK", reg.HubPublicKey)
 
-	if err := ensureInterface(priv, reg); err != nil { log.Println("wg setup warn:", err) }
+	if !*noWG {
+		if err := ensureInterface(priv, reg); err != nil { log.Println("wg setup warn:", err) }
 
-	for {
-		// Keep-alive: reconfigure interface every 30s
-		if err := refreshPeers(priv, reg); err != nil { log.Println("refresh warn:", err) }
-		time.Sleep(30 * time.Second)
+		for {
+			// Keep-alive: reconfigure interface every 30s
+			if err := refreshPeers(priv, reg); err != nil { log.Println("refresh warn:", err) }
+			time.Sleep(30 * time.Second)
+		}
+	} else {
+		log.Println("no-wg set: skipping wireguard setup. Registered OK:", reg.AssignedAddress)
+		return
 	}
 }
 
@@ -66,7 +74,13 @@ func refreshPeers(priv wgtypes.Key, reg registerResp) error {
 	peers := []wgtypes.PeerConfig{}
 	for _, p := range reg.Peers {
 		pubKey, err := wgtypes.ParseKey(p.PublicKey); if err != nil { continue }
-		peers = append(peers, wgtypes.PeerConfig{PublicKey: pubKey, PersistentKeepaliveInterval: durationPtr(15 * time.Second)})
+		pc := wgtypes.PeerConfig{PublicKey: pubKey, PersistentKeepaliveInterval: durationPtr(15 * time.Second)}
+		if p.Endpoint != "" {
+			if ua, err := net.ResolveUDPAddr("udp", p.Endpoint); err == nil {
+				pc.Endpoint = ua
+			}
+		}
+		peers = append(peers, pc)
 	}
 	cfg := wgtypes.Config{Peers: peers}
 	return c.ConfigureDevice("wg0", cfg)
